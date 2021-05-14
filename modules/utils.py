@@ -156,7 +156,7 @@ def get_bbox_landm(ann, img_height, img_width):
         [int(ann[10] * img_width), int(ann[11] * img_width)],
         [int(ann[12] * img_width), int(ann[13] * img_width)]
     ]
-    
+
     return bb, land
 
 
