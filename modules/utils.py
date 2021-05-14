@@ -143,6 +143,23 @@ def recover_pad_output(outputs, pad_params):
     return outputs
 
 
+def get_bbox_landm(ann, img_height, img_width):
+    """get bboxes and landmarks"""
+    bb = [
+        int(ann[0] * img_width), int(ann[1] * img_height), \
+        int(ann[2] * img_width), int(ann[3] * img_height)
+    ]
+    land = [
+        [int(ann[4] * img_width), int(ann[5] * img_width)],
+        [int(ann[6] * img_width), int(ann[7] * img_width)],
+        [int(ann[8] * img_width), int(ann[9] * img_width)],
+        [int(ann[10] * img_width), int(ann[11] * img_width)],
+        [int(ann[12] * img_width), int(ann[13] * img_width)]
+    ]
+    
+    return bb, land
+
+
 ###############################################################################
 #   Visulization                                                              #
 ###############################################################################
