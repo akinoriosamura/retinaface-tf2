@@ -6,8 +6,95 @@ from itertools import product as product
 
 
 ###############################################################################
-#   Tensorflow / Numpy Priors                                                 #
+#   Tensorflow / Numpy                                                 #
 ###############################################################################
+def decode(labels, priors, variances=[0.1, 0.2]):
+    """tensorflow decoding"""
+    bbox = _decode_bbox(labels[:, :4], priors, variances)
+    landm = _decode_landm(labels[:, 4:14], priors, variances)
+    landm_valid = labels[:, 14][:, np.newaxis]
+    conf = labels[:, 15][:, np.newaxis]
+
+    return np.concatenate([bbox, landm, landm_valid, conf], axis=1)
+
+
+def _decode_bbox(pre, priors, variances=[0.1, 0.2]):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        pre (tensor): location predictions for loc layers,
+            Shape: [num_priors,4]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded bounding box predictions
+    """
+    centers = priors[:, :2] + pre[:, :2] * variances[0] * priors[:, 2:]
+    sides = priors[:, 2:] * np.exp(pre[:, 2:] * variances[1])
+
+    return np.concatenate([centers - sides / 2, centers + sides / 2], axis=1)
+
+
+def _decode_landm(pre, priors, variances=[0.1, 0.2]):
+    """Decode landm from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        pre (tensor): landm predictions for loc layers,
+            Shape: [num_priors,10]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded landm predictions
+    """
+    landms = np.concatenate(
+        [priors[:, :2] + pre[:, :2] * variances[0] * priors[:, 2:],
+         priors[:, :2] + pre[:, 2:4] * variances[0] * priors[:, 2:],
+         priors[:, :2] + pre[:, 4:6] * variances[0] * priors[:, 2:],
+         priors[:, :2] + pre[:, 6:8] * variances[0] * priors[:, 2:],
+         priors[:, :2] + pre[:, 8:10] * variances[0] * priors[:, 2:]], axis=1)
+    return landms
+
+
+"""
+def prior_box(image_sizes, min_sizes, steps, clip=False):
+    # import pdb;pdb.set_trace()
+    image_sizes = np.array(image_sizes).astype(np.float32)
+    min_sizes = np.array(min_sizes)
+    steps = np.array(steps).astype(np.float32)
+
+    feature_maps = np.ceil(image_sizes.reshape([1, 2]) / steps.reshape([-1, 1])).astype(np.int)
+
+    anchors = []
+    for k in range(len(min_sizes)):
+        grid_x, grid_y = np.meshgrid(range(feature_maps[k][1]),
+                                      range(feature_maps[k][0]))
+        cx = (grid_x + 0.5) * steps[k] / image_sizes[1]
+        cy = (grid_y + 0.5) * steps[k] / image_sizes[0]
+        cxcy = np.stack([cx, cy], axis=-1)
+        cxcy = cxcy.reshape([-1, 2])
+        cxcy = np.repeat(cxcy, repeats=min_sizes[k].shape[0], axis=0)
+
+        sx = min_sizes[k] / image_sizes[1]
+        sy = min_sizes[k] / image_sizes[0]
+        sxsy = np.stack([sx, sy], 1)
+        sxsy = np.repeat(sxsy[np.newaxis],
+                         repeats=grid_x.shape[0] * grid_x.shape[1],
+                         axis=0)
+        sxsy = np.reshape(sxsy, [-1, 2])
+
+        anchors.append(np.concatenate([cxcy, sxsy], 1))
+
+    output = np.concatenate(anchors, axis=0)
+
+    if clip:
+        output = np.clip(output, 0, 1)
+
+    return output
+"""
+
+
 def prior_box(image_sizes, min_sizes, steps, clip=False):
     """prior box"""
     feature_maps = [
@@ -249,15 +336,15 @@ def _jaccard(box_a, box_b):
 ###############################################################################
 def decode_tf(labels, priors, variances=[0.1, 0.2]):
     """tensorflow decoding"""
-    bbox = _decode_bbox(labels[:, :4], priors, variances)
-    landm = _decode_landm(labels[:, 4:14], priors, variances)
+    bbox = _decode_bbox_tf(labels[:, :4], priors, variances)
+    landm = _decode_landm_tf(labels[:, 4:14], priors, variances)
     landm_valid = labels[:, 14][:, tf.newaxis]
     conf = labels[:, 15][:, tf.newaxis]
 
     return tf.concat([bbox, landm, landm_valid, conf], axis=1)
 
 
-def _decode_bbox(pre, priors, variances=[0.1, 0.2]):
+def _decode_bbox_tf(pre, priors, variances=[0.1, 0.2]):
     """Decode locations from predictions using priors to undo
     the encoding we did for offset regression at train time.
     Args:
@@ -275,7 +362,7 @@ def _decode_bbox(pre, priors, variances=[0.1, 0.2]):
     return tf.concat([centers - sides / 2, centers + sides / 2], axis=1)
 
 
-def _decode_landm(pre, priors, variances=[0.1, 0.2]):
+def _decode_landm_tf(pre, priors, variances=[0.1, 0.2]):
     """Decode landm from predictions using priors to undo
     the encoding we did for offset regression at train time.
     Args:

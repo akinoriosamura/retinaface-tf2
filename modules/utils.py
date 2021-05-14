@@ -5,7 +5,10 @@ import time
 import numpy as np
 import tensorflow as tf
 from absl import logging
+
+from modules.anchor import decode, prior_box
 from modules.dataset import load_tfrecord_dataset
+from modules.nms import non_max_suppression
 
 
 def load_yaml(load_path):
@@ -108,6 +111,63 @@ class ProgressBar(object):
             bar_chars, self.completed, self.task_num, inf_str, self.fps))
 
         sys.stdout.flush()
+
+
+def preprocess_input(img_raw, cfg):
+    # import pdb;pdb.set_trace()
+    height, width, _ = img_raw.shape
+    img = np.float32(img_raw.copy())
+
+    image_size = img.size
+    input_size = cfg['input_size']
+    output_size = (int(input_size), int(input_size))
+    down_scale_factor = output_size[0] / max(width, height)
+    resized_img = cv2.resize(img, (0, 0), fx=down_scale_factor,
+                        fy=down_scale_factor,
+                        interpolation=cv2.INTER_LINEAR)
+    resized_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2RGB)
+    re_height, re_width, _ = resized_img.shape
+
+    pad_x, pad_y = 0., 0.
+    # perform letterboxing if required
+    out_aspect = output_size[1] / output_size[0]    # type: ignore[index]
+    roi_aspect = re_height / re_width
+    new_width, new_height = int(re_width), int(re_height)
+    new_height = output_size[1]
+    new_width = output_size[0]
+    if new_width != int(re_width) or new_height != int(re_height):
+        img_pad_w, img_pad_h = int(new_width - re_width), int(new_height - re_height)
+        padd_val = np.mean(img, axis=(0, 1)).astype(np.uint8)
+        padded_img = cv2.copyMakeBorder(resized_img, 0, img_pad_h, 0, img_pad_w,
+                                cv2.BORDER_CONSTANT, value=padd_val.tolist())
+        pad_params = (re_height, re_width, img_pad_h, img_pad_w)
+
+    return height, width, padded_img, pad_params
+
+
+def postprocess(outputs, cfg, iou_th=0.4, score_th=0.02):
+    # select high cls value
+    # nms
+    # only for batch size 1
+    (bbox_regressions, landm_regressions, classifications) = outputs
+    preds = np.concatenate(  # [bboxes, landms, landms_valid, conf]
+        [bbox_regressions[0], landm_regressions[0],
+            np.ones_like(classifications[0, :, 0][..., np.newaxis]),
+            classifications[0, :, 1][..., np.newaxis]], 1)
+    priors = prior_box([cfg['input_size'], cfg['input_size']],
+                            cfg['min_sizes'],  cfg['steps'], cfg['clip'])
+    decode_preds = decode(preds, priors, cfg['variances'])
+
+    selected_indices = non_max_suppression(
+        boxes=decode_preds[:, :4],
+        scores=decode_preds[:, -1],
+        max_output_size=decode_preds.shape[0],
+        iou_threshold=iou_th,
+        score_threshold=score_th)
+    out = np.take(decode_preds, selected_indices, 0)
+    print("out: ", out.shape)
+
+    return out
 
 
 ###############################################################################
