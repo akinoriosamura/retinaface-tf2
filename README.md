@@ -43,15 +43,10 @@ git clone https://github.com/peteryuX/retinaface-tf2.git
 cd retinaface-tf2
 ```
 
-### Conda
-```bash
-conda env create -f environment.yml
-conda activate retinaface-tf2
-```
-
 ### Pip
 
 ```bash
+pipenv shell
 pip install -r requirements.txt
 ```
 
@@ -201,6 +196,12 @@ python test.py --cfg_path="./configs/retinaface_mbv2.yaml" --img_path="./data/0_
 
 Note:
 - You can down scale your input by the `--down_scale_factor`.
+
+### Demo on img dir
+
+```
+python test.py  --cfg_path="./configs/retinaface_res50.yaml" --img_dir="samples"
+```
 
 ### Demo on Webcam
 
