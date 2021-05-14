@@ -24,6 +24,23 @@ class BatchNormalization(tf.keras.layers.BatchNormalization):
         super(BatchNormalization, self).__init__(
             axis=axis, momentum=momentum, epsilon=epsilon, center=center,
             scale=scale, name=name, **kwargs)
+        self.axis = axis
+        self.momentum = momentum
+        self.epsilon = epsilon
+        self.center = center
+        self.scale = scale
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'axis': self.axis,
+            'momentum': self.momentum,
+            'epsilon': self.epsilon,
+            'center': self.center,
+            'scale': self.scale,
+            'name': self.name,
+        })
+        return config
 
     def call(self, x, training=False):
         if training is None:
@@ -75,6 +92,11 @@ class ConvUnit(tf.keras.layers.Layer):
                            kernel_initializer=_kernel_init(),
                            kernel_regularizer=_regularizer(wd),
                            use_bias=False, name='conv')
+        self.f = f
+        self.k = k
+        self.s = s
+        self.wd = wd
+        self.act = act
         self.bn = BatchNormalization(name='bn')
 
         if act is None:
@@ -87,6 +109,18 @@ class ConvUnit(tf.keras.layers.Layer):
             raise NotImplementedError(
                 'Activation function type {} is not recognized.'.format(act))
 
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'f': self.f,
+            'k': self.k,
+            's': self.s,
+            'wd': self.wd,
+            'act': self.act,
+            'name': self.name,
+        })
+        return config
+
     def call(self, x):
         return self.act_fn(self.bn(self.conv(x)))
 
@@ -95,15 +129,27 @@ class FPN(tf.keras.layers.Layer):
     """Feature Pyramid Network"""
     def __init__(self, out_ch, wd, name='FPN', **kwargs):
         super(FPN, self).__init__(name=name, **kwargs)
+        self.out_ch = out_ch
+        self.wd = wd
+
         act = 'relu'
         if (out_ch <= 64):
             act = 'lrelu'
 
-        self.output1 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
-        self.output2 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
-        self.output3 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
-        self.merge1 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
-        self.merge2 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
+        self.output1 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act, name=name+'_ConvBN_1')
+        self.output2 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act, name=name+'_ConvBN_2')
+        self.output3 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act, name=name+'_ConvBN_3')
+        self.merge1 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act, name=name+'_ConvBN_4')
+        self.merge2 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act, name=name+'_ConvBN_5')
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'out_ch': self.out_ch,
+            'wd': self.wd,
+            'name': self.name,
+        })
+        return config
 
     def call(self, x):
         output1 = self.output1(x[0])  # [80, 80, out_ch]
@@ -128,19 +174,31 @@ class SSH(tf.keras.layers.Layer):
     def __init__(self, out_ch, wd, name='SSH', **kwargs):
         super(SSH, self).__init__(name=name, **kwargs)
         assert out_ch % 4 == 0
+        self.out_ch = out_ch
+        self.wd = wd
+
         act = 'relu'
         if (out_ch <= 64):
             act = 'lrelu'
 
-        self.conv_3x3 = ConvUnit(f=out_ch // 2, k=3, s=1, wd=wd, act=None)
+        self.conv_3x3 = ConvUnit(f=out_ch // 2, k=3, s=1, wd=wd, act=None, name=name+'_ConvBN_1')
 
-        self.conv_5x5_1 = ConvUnit(f=out_ch // 4, k=3, s=1, wd=wd, act=act)
-        self.conv_5x5_2 = ConvUnit(f=out_ch // 4, k=3, s=1, wd=wd, act=None)
+        self.conv_5x5_1 = ConvUnit(f=out_ch // 4, k=3, s=1, wd=wd, act=act, name=name+'_ConvBN_2')
+        self.conv_5x5_2 = ConvUnit(f=out_ch // 4, k=3, s=1, wd=wd, act=None, name=name+'_ConvBN_3')
 
-        self.conv_7x7_2 = ConvUnit(f=out_ch // 4, k=3, s=1, wd=wd, act=act)
-        self.conv_7x7_3 = ConvUnit(f=out_ch // 4, k=3, s=1, wd=wd, act=None)
+        self.conv_7x7_2 = ConvUnit(f=out_ch // 4, k=3, s=1, wd=wd, act=act, name=name+'_ConvBN_4')
+        self.conv_7x7_3 = ConvUnit(f=out_ch // 4, k=3, s=1, wd=wd, act=None, name=name+'_ConvBN_5')
 
-        self.relu = ReLU()
+        self.relu = ReLU(name=name+'_relu_1')
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'out_ch': self.out_ch,
+            'wd': self.wd,
+            'name': self.name,
+        })
+        return config
 
     def call(self, x):
         conv_3x3 = self.conv_3x3(x)
@@ -162,10 +220,20 @@ class BboxHead(tf.keras.layers.Layer):
     def __init__(self, num_anchor, wd, name='BboxHead', **kwargs):
         super(BboxHead, self).__init__(name=name, **kwargs)
         self.num_anchor = num_anchor
-        self.conv = Conv2D(filters=num_anchor * 4, kernel_size=1, strides=1)
+        self.wd = wd
+        self.conv = Conv2D(filters=num_anchor * 4, kernel_size=1, strides=1, name=name+'_Conv_1')
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'num_anchor': self.num_anchor,
+            'wd': self.wd,
+            'name': self.name,
+        })
+        return config
 
     def call(self, x):
-        h, w = tf.shape(x)[1], tf.shape(x)[2]
+        h, w = x.get_shape()[1], x.get_shape()[2]
         x = self.conv(x)
 
         return tf.reshape(x, [-1, h * w * self.num_anchor, 4])
@@ -176,10 +244,20 @@ class LandmarkHead(tf.keras.layers.Layer):
     def __init__(self, num_anchor, wd, name='LandmarkHead', **kwargs):
         super(LandmarkHead, self).__init__(name=name, **kwargs)
         self.num_anchor = num_anchor
-        self.conv = Conv2D(filters=num_anchor * 10, kernel_size=1, strides=1)
+        self.wd = wd
+        self.conv = Conv2D(filters=num_anchor * 10, kernel_size=1, strides=1, name=name+'_Conv_1')
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'num_anchor': self.num_anchor,
+            'wd': self.wd,
+            'name': self.name,
+        })
+        return config
 
     def call(self, x):
-        h, w = tf.shape(x)[1], tf.shape(x)[2]
+        h, w = x.get_shape()[1], x.get_shape()[2]
         x = self.conv(x)
 
         return tf.reshape(x, [-1, h * w * self.num_anchor, 10])
@@ -190,10 +268,20 @@ class ClassHead(tf.keras.layers.Layer):
     def __init__(self, num_anchor, wd, name='ClassHead', **kwargs):
         super(ClassHead, self).__init__(name=name, **kwargs)
         self.num_anchor = num_anchor
-        self.conv = Conv2D(filters=num_anchor * 2, kernel_size=1, strides=1)
+        self.wd = wd
+        self.conv = Conv2D(filters=num_anchor * 2, kernel_size=1, strides=1, name=name+'_Conv_1')
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'num_anchor': self.num_anchor,
+            'wd': self.wd,
+            'name': self.name,
+        })
+        return config
 
     def call(self, x):
-        h, w = tf.shape(x)[1], tf.shape(x)[2]
+        h, w = x.get_shape()[1], x.get_shape()[2]
         x = self.conv(x)
 
         return tf.reshape(x, [-1, h * w * self.num_anchor, 2])
@@ -202,7 +290,8 @@ class ClassHead(tf.keras.layers.Layer):
 def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
                     name='RetinaFaceModel'):
     """Retina Face Model"""
-    input_size = cfg['input_size'] if training else None
+    # input_size = cfg['input_size'] if training else None
+    input_size = cfg['input_size']
     wd = cfg['weights_decay']
     out_ch = cfg['out_channel']
     num_anchor = len(cfg['min_sizes'][0])
@@ -210,6 +299,8 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
 
     # define model
     x = inputs = Input([input_size, input_size, 3], name='input_image')
+    print("inputs: ", inputs.shape)
+    print("inputs: ", inputs.name)
 
     x = Backbone(backbone_type=backbone_type)(x)
 
@@ -230,17 +321,27 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
 
     classifications = tf.keras.layers.Softmax(axis=-1)(classifications)
 
-    if training:
-        out = (bbox_regressions, landm_regressions, classifications)
+    # if training:
+    out = (bbox_regressions, landm_regressions, classifications)
+    print("bbox_regressions: ", bbox_regressions.shape)
+    print("bbox_regressions: ", bbox_regressions.name)
+    print("landm_regressions: ", landm_regressions.shape)
+    print("landm_regressions: ", landm_regressions.name)
+    print("classifications: ", classifications.shape)
+    print("classifications: ", classifications.name)
+    """
     else:
         # only for batch size 1
         preds = tf.concat(  # [bboxes, landms, landms_valid, conf]
             [bbox_regressions[0], landm_regressions[0],
              tf.ones_like(classifications[0, :, 0][..., tf.newaxis]),
              classifications[0, :, 1][..., tf.newaxis]], 1)
+        print("preds: ", preds.shape)
         priors = prior_box_tf((tf.shape(inputs)[1], tf.shape(inputs)[2]),
                               cfg['min_sizes'],  cfg['steps'], cfg['clip'])
+        print("priors: ", priors.shape)
         decode_preds = decode_tf(preds, priors, cfg['variances'])
+        print("decode_preds: ", decode_preds.shape)
 
         selected_indices = tf.image.non_max_suppression(
             boxes=decode_preds[:, :4],
@@ -248,7 +349,11 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
             max_output_size=tf.shape(decode_preds)[0],
             iou_threshold=iou_th,
             score_threshold=score_th)
+        print("selected_indices: ", selected_indices.shape)
 
-        out = tf.gather(decode_preds, selected_indices)
+        out = tf.gather(decode_preds, selected_indices, name='out')
+        print("out: ", out.shape)
+        print("out: ", out.name)
+    """
 
     return Model(inputs, out, name=name)
